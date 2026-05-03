@@ -33,3 +33,27 @@ button {
   line-height: 1.5;
   padding: 20px;
 }
+.projector {
+  background: black;
+  color: white;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 40px;
+}
+
+.display {
+  font-size: 60px;
+  line-height: 1.6;
+  max-width: 90%;
+}
+
+.exitBtn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  padding: 10px 20px;
+  font-size: 16px;
+}
