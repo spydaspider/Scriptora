@@ -1,13 +1,46 @@
 import styles from './dashboard.module.css';
-import { useState } from 'react';
+import { useState, useEffect} from 'react';
 import bible from '../components/data/bible.json';
 import bookAliases from '../components/helpers/bookaliases.js';
+//Mic capture function
+const startMic = async (socket) => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
+  const mediaRecorder = new MediaRecorder(stream);
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (socket.readyState === 1) {
+      socket.send(e.data);
+    }
+  };
+
+  mediaRecorder.start(1000);
+};
 const Dashboard = () => {
   const [query, setQuery] = useState("");
   const [verse, setVerse] = useState("");
   const [isProjecting, setIsProjecting] = useState(false);
+  useEffect(() => {
+  const socket = new WebSocket("ws://localhost:3001");
 
+  socket.onopen = () => {
+    console.log("Connected to server");
+    startMic(socket);
+  };
+
+  socket.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+
+    if (msg.type === "verse" && msg.data) {
+  setQuery(msg.data);
+  fetchVerse(msg.data); 
+}
+  };
+
+  return () => {
+    socket.close();
+  };
+}, []);
   const getVerse = (input) => {
   try {
     let text = input.toLowerCase().trim();
@@ -42,11 +75,10 @@ const Dashboard = () => {
   }
 };
 
-  const fetchVerse = () => {
-    if (!query) return;
-    const result = getVerse(query);
-    setVerse(result);
-  };
+  const fetchVerse = (inputValue) => {
+  const result = getVerse(inputValue || query);
+  setVerse(result);
+};
 
   return (
   <div className={isProjecting ? styles.projector : styles.container}>
