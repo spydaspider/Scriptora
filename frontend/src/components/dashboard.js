@@ -1,124 +1,159 @@
 import styles from './dashboard.module.css';
-import { useState, useEffect} from 'react';
+import { useState, useEffect } from 'react';
 import bible from '../components/data/bible.json';
 import bookAliases from '../components/helpers/bookaliases.js';
-//Mic capture function
-const startMic = async (socket) => {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-  const mediaRecorder = new MediaRecorder(stream);
+//  Speech Recognition
+const startSpeechRecognition = (onResult) => {
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  mediaRecorder.ondataavailable = (e) => {
-    if (socket.readyState === 1) {
-      socket.send(e.data);
-    }
+  if (!SpeechRecognition) {
+    alert("Speech Recognition not supported in this browser");
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = "en-US";
+
+  recognition.onresult = (event) => {
+    const transcript =
+      event.results[event.results.length - 1][0].transcript;
+
+    console.log("Heard:", transcript);
+    onResult(transcript.toLowerCase());
   };
 
-  mediaRecorder.start(1000);
+  recognition.onerror = (err) => {
+    console.error("Speech error:", err);
+  };
+
+  recognition.start();
 };
+
 const Dashboard = () => {
   const [query, setQuery] = useState("");
   const [verse, setVerse] = useState("");
   const [isProjecting, setIsProjecting] = useState(false);
+
+  // 🎤 Start listening ONCE
   useEffect(() => {
-  const socket = new WebSocket("ws://localhost:3001");
+    startSpeechRecognition((text) => {
+      console.log("Detected:", text);
 
-  socket.onopen = () => {
-    console.log("Connected to server");
-    startMic(socket);
-  };
+      const verseRef = detectVerse(text);
 
-  socket.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
+      if (verseRef) {
+        console.log("Verse detected:", verseRef);
+        setQuery(verseRef);
+        fetchVerse(verseRef);
+      }
+    });
+  }, []);
 
-    if (msg.type === "verse" && msg.data) {
-  setQuery(msg.data);
-  fetchVerse(msg.data); 
-}
-  };
+  // Detect verse from speech
+  const detectVerse = (text) => {
+  text = text.toLowerCase();
 
-  return () => {
-    socket.close();
-  };
-}, []);
+  // Normalize "3:16" and "3 16"
+  text = text.replace(/(\d+)\s*:\s*(\d+)/, "$1 $2");
+
+  // Try to find book + numbers anywhere in sentence
+  const match = text.match(
+    /(genesis|john|romans|psalm|psalms)[^\d]*(\d+)[^\d]*(\d+)/
+  );
+
+  if (!match) return null;
+
+  const book = match[1];
+  const chapter = match[2];
+  const verse = match[3];
+
+  return `${book} ${chapter}:${verse}`;
+};
+  
   const getVerse = (input) => {
-  try {
-    let text = input.toLowerCase().trim();
+    try {
+      let text = input.toLowerCase().trim();
 
-    // Convert "john 3 16" → "john 3:16"
-    text = text.replace(/(\d+)\s+(\d+)$/, "$1:$2");
+      text = text.replace(/(\d+)\s+(\d+)$/, "$1:$2");
 
-    const match = text.match(/(.+)\s(\d+):(\d+)/);
+      const match = text.match(/(.+)\s(\d+):(\d+)/);
 
-    if (!match) return "Invalid format. Try 'John 3:16'";
+      if (!match) return "Invalid format. Try 'John 3:16'";
 
-    let bookInput = match[1].trim();
-    const chapter = match[2];
-    const verse = match[3];
+      let bookInput = match[1].trim();
+      const chapter = match[2];
+      const verseNum = match[3];
 
-    // Resolve alias
-    const book =
-      bookAliases[bookInput] ||
-      bookAliases[bookInput.replace(/\./g, "")];
+      const book =
+        bookAliases[bookInput] ||
+        bookAliases[bookInput.replace(/\./g, "")];
 
-    if (!book) return "Unknown book name.";
+      if (!book) return "Unknown book name.";
 
-    const result = bible[book]?.[chapter]?.[verse];
+      const result = bible[book]?.[chapter]?.[verseNum];
 
-    if (result) {
-      return `${book} ${chapter}:${verse} - ${result}`;
-    } else {
-      return "Verse not found.";
+      if (result) {
+        return `${book} ${chapter}:${verseNum} - ${result}`;
+      } else {
+        return "Verse not found.";
+      }
+    } catch {
+      return "Error reading verse.";
     }
-  } catch {
-    return "Error reading verse.";
-  }
-};
+  };
 
+  
   const fetchVerse = (inputValue) => {
-  const result = getVerse(inputValue || query);
-  setVerse(result);
-};
+    const result = getVerse(inputValue || query);
+    setVerse(result);
+  };
 
   return (
-  <div className={isProjecting ? styles.projector : styles.container}>
-    
-    {!isProjecting && (
-      <>
-        <h1>Bible Projector</h1>
+    <div className={isProjecting ? styles.projector : styles.container}>
 
-        <div className={styles.controls}>
-          <input
-            type="text"
-            placeholder="Enter verse e.g. John 3:16"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") fetchVerse();
-            }}
-          />
-          <button onClick={fetchVerse}>Show</button>
-          <button onClick={() => setIsProjecting(true)}>
-            Start Projection
-          </button>
-        </div>
-      </>
-    )}
+      {!isProjecting && (
+        <>
+          <h1>Bible Projector</h1>
 
-    <div className={styles.display}>
-      {verse || "Verse will appear here"}
+          <div className={styles.controls}>
+            <input
+              type="text"
+              placeholder="Enter verse e.g. John 3:16"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") fetchVerse();
+              }}
+            />
+
+            <button onClick={() => fetchVerse()}>Show</button>
+
+            <button onClick={() => setIsProjecting(true)}>
+              Start Projection
+            </button>
+          </div>
+        </>
+      )}
+
+      <div className={styles.display}>
+        {verse || "Verse will appear here"}
+      </div>
+
+      {isProjecting && (
+        <button
+          className={styles.exitBtn}
+          onClick={() => setIsProjecting(false)}
+        >
+          Exit
+        </button>
+      )}
     </div>
-
-    {isProjecting && (
-      <button
-        className={styles.exitBtn}
-        onClick={() => setIsProjecting(false)}
-      >
-        Exit
-      </button>
-    )}
-  </div>
-);
+  );
 };
 
 export default Dashboard;

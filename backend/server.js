@@ -9,6 +9,10 @@ app.use(cors());
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// 🧠 Audio buffering
+let audioBuffer = [];
+let isProcessing = false;
+
 app.get("/", (req, res) => {
   res.send("Scriptora Voice Backend Running");
 });
@@ -17,42 +21,83 @@ wss.on("connection", (ws) => {
   console.log("Client connected");
 
   ws.on("message", async (message) => {
-    // message = audio chunk from frontend
 
-    console.log("Audio received...");
+    // store audio chunks
+    audioBuffer.push(message);
 
-    
-    const text = await fakeWhisper(message);
+    // prevent multiple processing
+    if (isProcessing) return;
 
-    console.log("Transcribed:", text);
+    isProcessing = true;
 
-    const verse = detectVerse(text);
-     console.log(verse);
-    ws.send(JSON.stringify({ type: "verse", data: verse }));
+    // simulate pause in speech
+    setTimeout(async () => {
+
+      const combined = Buffer.concat(audioBuffer);
+      audioBuffer = [];
+
+      console.log("Processing speech...");
+
+      const text = await fakeWhisper(combined);
+
+      isProcessing = false;
+
+      if (!text || text.trim() === "") {
+        console.log("No meaningful speech detected");
+        return;
+      }
+
+      console.log("Transcribed:", text);
+
+      const verse = detectVerse(text);
+
+      if (verse) {
+        console.log("Detected verse:", verse);
+
+        ws.send(JSON.stringify({
+          type: "verse",
+          data: verse
+        }));
+      }
+
+    }, 2000);
   });
 });
 
-function fakeWhisper(audio) {
-  // placeholder (we will replace with real Whisper call)
-  return Promise.resolve("open john chapter 3 verse 16");
+
+// 🧠 FAKE WHISPER (controlled simulation)
+async function fakeWhisper() {
+  console.log("Fake whisper running...");
+
+  await new Promise((res) => setTimeout(res, 500));
+
+  async function fakeWhisper() {
+  console.log("Fake whisper running...");
+  await new Promise(res => setTimeout(res, 500));
+  return "open john chapter 3 verse 16"; 
 }
 
+  const random = samples[Math.floor(Math.random() * samples.length)];
+
+  return random;
+}
+
+
+// 📖 Verse detection
 function detectVerse(text) {
- const match = text.match(
+  const match = text.match(
     /(genesis|john|romans|psalm|psalms)\s*(chapter\s*)?(\d+)\s*(verse\s*)?(\d+)/
   );
-if (!match) return null;
+
+  if (!match) return null;
 
   const book = match[1];
   const chapter = match[3];
   const verse = match[5];
 
-  const result = `${book} ${chapter}:${verse}`;
-
-  console.log("Detected verse:", result);
-
-  return result;
+  return `${book} ${chapter}:${verse}`;
 }
+
 
 server.listen(3001, () => {
   console.log("Server running on port 3001");
