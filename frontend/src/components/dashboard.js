@@ -19,16 +19,41 @@ const startSpeechRecognition = (onResult) => {
   recognition.interimResults = false;
   recognition.lang = "en-US";
 
+  let isListening = false;
+
+  recognition.onstart = () => {
+    console.log("Speech recognition started");
+    isListening = true;
+  };
+
   recognition.onresult = (event) => {
     const transcript =
       event.results[event.results.length - 1][0].transcript;
 
     console.log("Heard:", transcript);
+
     onResult(transcript.toLowerCase());
   };
 
   recognition.onerror = (err) => {
     console.error("Speech error:", err);
+
+    if (err.error === "aborted") {
+      return;
+    }
+  };
+
+  recognition.onend = () => {
+    console.log("Speech recognition ended");
+
+    isListening = false;
+
+    // restart safely
+    setTimeout(() => {
+      if (!isListening) {
+        recognition.start();
+      }
+    }, 1000);
   };
 
   recognition.start();
@@ -38,21 +63,22 @@ const Dashboard = () => {
   const [query, setQuery] = useState("");
   const [verse, setVerse] = useState("");
   const [isProjecting, setIsProjecting] = useState(false);
+  
+  const startListening = () => {
+  startSpeechRecognition((text) => {
+    console.log("Detected:", text);
 
-  // 🎤 Start listening ONCE
-  useEffect(() => {
-    startSpeechRecognition((text) => {
-      console.log("Detected:", text);
+    const verseRef = detectVerse(text);
 
-      const verseRef = detectVerse(text);
+    if (verseRef) {
+      console.log("Verse detected:", verseRef);
 
-      if (verseRef) {
-        console.log("Verse detected:", verseRef);
-        setQuery(verseRef);
-        fetchVerse(verseRef);
-      }
-    });
-  }, []);
+      setQuery(verseRef);
+      fetchVerse(verseRef);
+    }
+  });
+};
+  
 
   // Detect verse from speech
   const detectVerse = (text) => {
@@ -132,10 +158,14 @@ const Dashboard = () => {
             />
 
             <button onClick={() => fetchVerse()}>Show</button>
+            <button onClick={startListening}>
+  Start Voice Control
+</button>
 
             <button onClick={() => setIsProjecting(true)}>
               Start Projection
             </button>
+            
           </div>
         </>
       )}
