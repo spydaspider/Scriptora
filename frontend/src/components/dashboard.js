@@ -2,6 +2,10 @@ import styles from './dashboard.module.css';
 import { useState, useEffect } from 'react';
 import bible from '../components/data/bible.json';
 import bookAliases from '../components/helpers/bookaliases.js';
+import buildBible from '../components/helpers/buildBible';
+import rawBible from '../components/data/bible.json';
+
+
 
 //  Speech Recognition
 const startSpeechRecognition = (onResult) => {
@@ -64,7 +68,7 @@ const Dashboard = () => {
   const [verse, setVerse] = useState("");
   const [isProjecting, setIsProjecting] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  
+  const bible = buildBible(rawBible);
   const startListening = () => {
   if (isListening) return;
 
@@ -89,13 +93,102 @@ const Dashboard = () => {
   const detectVerse = (text) => {
   text = text.toLowerCase();
 
-  // Normalize "3:16" and "3 16"
+  // normalize formats
   text = text.replace(/(\d+)\s*:\s*(\d+)/, "$1 $2");
 
-  // Try to find book + numbers anywhere in sentence
-  const match = text.match(
-    /(genesis|john|romans|psalm|psalms)[^\d]*(\d+)[^\d]*(\d+)/
+  // aliases for speech mistakes
+  const aliases = {
+    romance: "romans",
+    sams: "psalms",
+    salms: "psalms",
+    mathew: "matthew",
+    revelations: "revelation",
+    songs: "song of solomon",
+  };
+
+  // replace mistaken words
+  Object.keys(aliases).forEach((wrong) => {
+    text = text.replace(wrong, aliases[wrong]);
+  });
+
+  // ALL books
+  const books = [
+    "genesis",
+    "exodus",
+    "leviticus",
+    "numbers",
+    "deuteronomy",
+    "joshua",
+    "judges",
+    "ruth",
+    "1 samuel",
+    "2 samuel",
+    "1 kings",
+    "2 kings",
+    "1 chronicles",
+    "2 chronicles",
+    "ezra",
+    "nehemiah",
+    "esther",
+    "job",
+    "psalm",
+    "psalms",
+    "proverbs",
+    "ecclesiastes",
+    "song of solomon",
+    "isaiah",
+    "jeremiah",
+    "lamentations",
+    "ezekiel",
+    "daniel",
+    "hosea",
+    "joel",
+    "amos",
+    "obadiah",
+    "jonah",
+    "micah",
+    "nahum",
+    "habakkuk",
+    "zephaniah",
+    "haggai",
+    "zechariah",
+    "malachi",
+    "matthew",
+    "mark",
+    "luke",
+    "john",
+    "acts",
+    "romans",
+    "1 corinthians",
+    "2 corinthians",
+    "galatians",
+    "ephesians",
+    "philippians",
+    "colossians",
+    "1 thessalonians",
+    "2 thessalonians",
+    "1 timothy",
+    "2 timothy",
+    "titus",
+    "philemon",
+    "hebrews",
+    "james",
+    "1 peter",
+    "2 peter",
+    "1 john",
+    "2 john",
+    "3 john",
+    "jude",
+    "revelation",
+  ];
+
+  const booksPattern = books.join("|");
+
+  const regex = new RegExp(
+    `(${booksPattern})[^\\d]*(\\d+)[^\\d]*(\\d+)`
   );
+
+  const match = text.match(regex);
 
   if (!match) return null;
 
