@@ -12,6 +12,12 @@ const bookAliases = {
   psalms: "Psalm",
   ps: "Psalm",
 
+  revelation: "Revelation",
+  revelations: "Revelation",
+  revealation: "Revelation",
+  revealations: "Revelation",
+  rev: "Revelation",
+
   "1 john": "1 John",
   "first john": "1 John",
   "2 john": "2 John",
@@ -20,4 +26,5 @@ const bookAliases = {
   "song of solomon": "Song of Solomon",
   song: "Song of Solomon"
 };
+
 export default bookAliases;
