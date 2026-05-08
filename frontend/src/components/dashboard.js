@@ -63,8 +63,13 @@ const Dashboard = () => {
   const [query, setQuery] = useState("");
   const [verse, setVerse] = useState("");
   const [isProjecting, setIsProjecting] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   
   const startListening = () => {
+  if (isListening) return;
+
+  setIsListening(true);
+
   startSpeechRecognition((text) => {
     console.log("Detected:", text);
 
@@ -158,10 +163,12 @@ const Dashboard = () => {
             />
 
             <button onClick={() => fetchVerse()}>Show</button>
-            <button onClick={startListening}>
-  Start Voice Control
+           <button
+  onClick={startListening}
+  disabled={isListening}
+>
+  {isListening ? "Voice Active" : "Start Voice Control"}
 </button>
-
             <button onClick={() => setIsProjecting(true)}>
               Start Projection
             </button>
