@@ -126,144 +126,117 @@ const convertWordsToNumbers = (text) => {
 
   return result.join(" ");
 };
-const parseBibleReference = (input) => {
+const parseBibleReferenceSmart = (input) => {
+  let text = input.toLowerCase();
 
-  let text =
-    input.toLowerCase();
+  // normalize speech noise
+  text = text
+    .replace(/vs\.?/g, "verse")
+    .replace(/chapter/g, "chapter");
 
-  // convert spoken numbers
-  text =
-    convertWordsToNumbers(text);
+  text = convertWordsToNumbers(text);
+  text = text.replace(/[.,!?]/g, "");
 
-  // normalize
-  text = text.replace(
-    /(\d+)v(\d+)/g,
-    "$1 verse $2"
-  );
-
-  text = text.replace(
-    /(\d+)vs(\d+)/g,
-    "$1 verse $2"
-  );
-
-  // speech corrections
   const corrections = {
     "some more": "samuel",
     "first some more": "1 samuel",
     "second some more": "2 samuel",
     "detrimony": "deuteronomy",
     "theronomy": "deuteronomy",
-    "deutronomy": "deuteronomy",
     "romance": "romans",
     "sams": "psalms",
     "salms": "psalms",
-    "x dust up": "exodus",
     "xodus": "exodus",
     "revelations": "revelation"
   };
 
-  Object.keys(corrections).forEach(key => {
+  for (const key in corrections) {
+    text = text.replaceAll(key, corrections[key]);
+  }
 
-    text = text.replaceAll(
-      key,
-      corrections[key]
-    );
-  });
-
-  // normalize spoken ordinals
   text = text
     .replaceAll("first", "1")
     .replaceAll("second", "2")
     .replaceAll("third", "3");
 
-  console.log(
-    "NORMALIZED:",
-    text
-  );
+  const numberedBooks = [
+    "1 samuel","2 samuel","1 kings","2 kings",
+    "1 chronicles","2 chronicles","1 corinthians",
+    "2 corinthians","1 thessalonians","2 thessalonians",
+    "1 timothy","2 timothy","1 peter","2 peter",
+    "1 john","2 john","3 john"
+  ];
 
-  const books = Object.keys(bookAliases);
-
+  // -----------------------------
+  // STEP 1: LOCK BOOK FIRST
+  // -----------------------------
   let detectedBook = null;
 
-  let bestScore = 0;
+  for (const book of numberedBooks) {
+    if (text.includes(book)) {
+      detectedBook = book;
+      break;
+    }
+  }
 
-  const words = text.split(" ");
+  // fallback fuzzy match ONLY if needed
+  if (!detectedBook) {
+    const books = Object.keys(bookAliases);
+    let bestScore = 0;
 
-  // fuzzy matching
-  for (const book of books) {
+    for (const book of books) {
+      const score = stringSimilarity.compareTwoStrings(text, book);
 
-    for (let i = 0; i < words.length; i++) {
-
-      const chunk =
-        words.slice(i, i + 3).join(" ");
-
-      const score =
-        stringSimilarity.compareTwoStrings(
-          chunk,
-          book
-        );
-
-      if (
-        score > bestScore &&
-        score > 0.5
-      ) {
-
+      if (score > bestScore && score > 0.45) {
         bestScore = score;
-
         detectedBook = book;
       }
     }
   }
 
-  console.log(
-    "BOOK:",
-    detectedBook,
-    "SCORE:",
-    bestScore
-  );
+  if (!detectedBook) return null;
 
-  if (!detectedBook) {
-    return null;
+  // -----------------------------
+  // STEP 2: REMOVE BOOK FROM TEXT
+  // -----------------------------
+  let remaining = text.replace(detectedBook, "").trim();
+
+  // -----------------------------
+  // STEP 3: PRIORITISED PARSING
+  // -----------------------------
+  let chapter = null;
+  let verse = null;
+
+  // HIGH PRIORITY: "chapter X verse Y"
+  const pattern = remaining.match(/chapter\s*(\d+)\s*verse\s*(\d+)/);
+  if (pattern) {
+    chapter = pattern[1];
+    verse = pattern[2];
   }
 
-  // extract numbers
- let chapter = null;
-let verse = null;
+  // MEDIUM: explicit words
+  if (!chapter || !verse) {
+    const chapterMatch = remaining.match(/chapter\s*(\d+)/);
+    const verseMatch = remaining.match(/verse\s*(\d+)/);
 
-// match "chapter X"
-const chapterMatch =
-  text.match(/chapter\s*(\d+)/);
-
-if (chapterMatch) {
-  chapter = chapterMatch[1];
-}
-
-// match "verse X" or "vs X"
-const verseMatch =
-  text.match(/(verse|vs)\s*(\d+)/);
-
-if (verseMatch) {
-  verse = verseMatch[2];
-}
-
-// fallback: "2 9"
-if (!chapter || !verse) {
-  const fallback =
-    text.match(/\d+/g);
-
-  if (fallback && fallback.length >= 2) {
-    chapter = fallback[0];
-    verse = fallback[1];
+    if (chapterMatch) chapter = chapterMatch[1];
+    if (verseMatch) verse = verseMatch[1];
   }
-}
 
-if (!chapter || !verse) {
-  return null;
-}
+  // LOW: fallback numbers
+  if (!chapter || !verse) {
+    const nums = remaining.match(/\d+/g);
+
+    if (nums && nums.length >= 2) {
+      chapter = nums[0];
+      verse = nums[1];
+    }
+  }
+
+  if (!chapter || !verse) return null;
 
   return {
-    book:
-      bookAliases[detectedBook],
+    book: bookAliases[detectedBook],
     chapter,
     verse
   };
@@ -300,7 +273,7 @@ const Dashboard = () => {
       );
 
       const parsed =
-        parseBibleReference(updated);
+        parseBibleReferenceSmart(updated);
 
       if (parsed) {
 
