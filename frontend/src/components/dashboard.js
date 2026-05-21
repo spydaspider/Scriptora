@@ -4,13 +4,9 @@ import bible from '../components/data/bible.json';
 import bookAliases from '../components/helpers/bookaliases.js';
 import buildBible from '../components/helpers/buildBible';
 import rawBible from '../components/data/bible.json';
-import MicRecorder from "mic-recorder-to-mp3";
-import axios from "axios";
+import stringSimilarity from "string-similarity";
 
 
-const recorder = new MicRecorder({
-  bitRate: 128
-});
 
 //  Speech Recognition
 const startSpeechRecognition = (onResult) => {
@@ -68,350 +64,303 @@ const startSpeechRecognition = (onResult) => {
   recognition.start();
 };
 
+const numberWords = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50
+};
+
+const convertWordsToNumbers = (text) => {
+
+  const words = text.split(" ");
+
+  let result = [];
+
+  for (let i = 0; i < words.length; i++) {
+
+    const current =
+      numberWords[words[i]];
+
+    const next =
+      numberWords[words[i + 1]];
+
+    if (
+      current >= 20 &&
+      next &&
+      next < 10
+    ) {
+
+      result.push(current + next);
+
+      i++;
+
+    } else if (current) {
+
+      result.push(current);
+
+    } else {
+
+      result.push(words[i]);
+    }
+  }
+
+  return result.join(" ");
+};
+const parseBibleReference = (input) => {
+
+  let text =
+    input.toLowerCase();
+
+  // convert spoken numbers
+  text =
+    convertWordsToNumbers(text);
+
+  // normalize
+  text = text.replace(
+    /(\d+)v(\d+)/g,
+    "$1 verse $2"
+  );
+
+  text = text.replace(
+    /(\d+)vs(\d+)/g,
+    "$1 verse $2"
+  );
+
+  // speech corrections
+  const corrections = {
+    "some more": "samuel",
+    "first some more": "1 samuel",
+    "second some more": "2 samuel",
+    "detrimony": "deuteronomy",
+    "theronomy": "deuteronomy",
+    "deutronomy": "deuteronomy",
+    "romance": "romans",
+    "sams": "psalms",
+    "salms": "psalms",
+    "x dust up": "exodus",
+    "xodus": "exodus",
+    "revelations": "revelation"
+  };
+
+  Object.keys(corrections).forEach(key => {
+
+    text = text.replaceAll(
+      key,
+      corrections[key]
+    );
+  });
+
+  // normalize spoken ordinals
+  text = text
+    .replaceAll("first", "1")
+    .replaceAll("second", "2")
+    .replaceAll("third", "3");
+
+  console.log(
+    "NORMALIZED:",
+    text
+  );
+
+  const books = Object.keys(bookAliases);
+
+  let detectedBook = null;
+
+  let bestScore = 0;
+
+  const words = text.split(" ");
+
+  // fuzzy matching
+  for (const book of books) {
+
+    for (let i = 0; i < words.length; i++) {
+
+      const chunk =
+        words.slice(i, i + 3).join(" ");
+
+      const score =
+        stringSimilarity.compareTwoStrings(
+          chunk,
+          book
+        );
+
+      if (
+        score > bestScore &&
+        score > 0.5
+      ) {
+
+        bestScore = score;
+
+        detectedBook = book;
+      }
+    }
+  }
+
+  console.log(
+    "BOOK:",
+    detectedBook,
+    "SCORE:",
+    bestScore
+  );
+
+  if (!detectedBook) {
+    return null;
+  }
+
+  // extract numbers
+ let chapter = null;
+let verse = null;
+
+// match "chapter X"
+const chapterMatch =
+  text.match(/chapter\s*(\d+)/);
+
+if (chapterMatch) {
+  chapter = chapterMatch[1];
+}
+
+// match "verse X" or "vs X"
+const verseMatch =
+  text.match(/(verse|vs)\s*(\d+)/);
+
+if (verseMatch) {
+  verse = verseMatch[2];
+}
+
+// fallback: "2 9"
+if (!chapter || !verse) {
+  const fallback =
+    text.match(/\d+/g);
+
+  if (fallback && fallback.length >= 2) {
+    chapter = fallback[0];
+    verse = fallback[1];
+  }
+}
+
+if (!chapter || !verse) {
+  return null;
+}
+
+  return {
+    book:
+      bookAliases[detectedBook],
+    chapter,
+    verse
+  };
+};
 const Dashboard = () => {
   const [query, setQuery] = useState("");
   const [verse, setVerse] = useState("");
   const [isProjecting, setIsProjecting] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const bible = buildBible(rawBible);
- const startListening = async () => {
+  const [liveTranscript, setLiveTranscript] =
+  useState("");
+ const startListening = () => {
 
   if (isListening) return;
 
   setIsListening(true);
 
-  const processAudio = async () => {
+  startSpeechRecognition((text) => {
 
-    try {
+    if (!text || text.trim() === "") {
+      return;
+    }
 
-      await recorder.start();
+    setLiveTranscript(prev => {
 
-      // record for 3 seconds
-      await new Promise(resolve =>
-        setTimeout(resolve, 3000)
-      );
-
-      const [buffer, blob] =
-        await recorder.stop().getMp3();
-
-      // ignore tiny/corrupted chunks
-      if (blob.size < 1000) {
-
-        console.log(
-          "Skipping empty chunk"
-        );
-
-        processAudio();
-
-        return;
-      }
-
-      const formData = new FormData();
-
-      formData.append(
-        "audio",
-        blob,
-        "audio.mp3"
-      );
-
-      const response = await axios.post(
-        "http://localhost:5000/transcribe",
-        formData
-      );
-
-      const text =
-        response.data.text.toLowerCase();
-        const possibleBooks = [
-  "genesis",
-  "exodus",
-  "psalm",
-  "psalms",
-  "john",
-  "matthew",
-  "mark",
-  "luke",
-  "romans",
-  "corinthians",
-  "revelation",
-  "acts",
-  "isaiah",
-  "proverbs"
-];
-
-const containsBibleWord =
-  possibleBooks.some(book =>
-    text.includes(book)
-  );
-
-if (!containsBibleWord) {
-
-  console.log(
-    "Ignoring noise:",
-    text
-  );
-
-  processAudio();
-
-  return;
-}
-        if (!text || text.trim().length < 5) {
-  processAudio();
-  return;
-}
+      // rolling transcript memory
+      const updated =
+        `${prev} ${text}`.trim();
 
       console.log(
-        "Transcript:",
-        text
+        "LIVE TRANSCRIPT:",
+        updated
       );
 
-      const verseRef =
-        detectVerse(text);
+      const parsed =
+        parseBibleReference(updated);
 
-      if (verseRef) {
+      if (parsed) {
+
+        const verseRef =
+          `${parsed.book} ${parsed.chapter}:${parsed.verse}`;
 
         console.log(
-          "Detected verse:",
+          "VERSE DETECTED:",
           verseRef
         );
 
         setQuery(verseRef);
 
         fetchVerse(verseRef);
+
+        // clear memory after success
+        return "";
       }
 
-      // start next cycle ONLY after completion
-      processAudio();
-
-    } catch (err) {
-
-      console.error(
-        "Transcription error:",
-        err
-      );
-
-      // recover automatically
-      processAudio();
-    }
-  };
-
-  processAudio();
-};
-
-  // Detect verse from speech
-  const detectVerse = (text) => {
-
-  text = text.toLowerCase().trim();
-
-  // remove punctuation
-  text = text.replace(/[.,!?]/g, "");
-
-  // normalize colon spacing
-  text = text.replace(
-    /(\d+)\s*:\s*(\d+)/g,
-    "$1:$2"
-  );
-
-  // common speech mistakes
-  const aliases = {
-    romance: "romans",
-    romanss: "romans",
-    sams: "psalms",
-    salms: "psalms",
-    mathew: "matthew",
-    matthews: "matthew",
-    revelations: "revelation",
-    songs: "song of solomon",
-  };
-
-  Object.keys(aliases).forEach((wrong) => {
-
-    text = text.replace(
-      new RegExp(wrong, "g"),
-      aliases[wrong]
-    );
+      // keep recent transcript only
+      return updated.slice(-250);
+    });
   });
-
-  // ALL books
-  const books = [
-    "genesis",
-    "exodus",
-    "leviticus",
-    "numbers",
-    "deuteronomy",
-    "joshua",
-    "judges",
-    "ruth",
-    "1 samuel",
-    "2 samuel",
-    "1 kings",
-    "2 kings",
-    "1 chronicles",
-    "2 chronicles",
-    "ezra",
-    "nehemiah",
-    "esther",
-    "job",
-    "psalm",
-    "psalms",
-    "proverbs",
-    "ecclesiastes",
-    "song of solomon",
-    "isaiah",
-    "jeremiah",
-    "lamentations",
-    "ezekiel",
-    "daniel",
-    "hosea",
-    "joel",
-    "amos",
-    "obadiah",
-    "jonah",
-    "micah",
-    "nahum",
-    "habakkuk",
-    "zephaniah",
-    "haggai",
-    "zechariah",
-    "malachi",
-    "matthew",
-    "mark",
-    "luke",
-    "john",
-    "acts",
-    "romans",
-    "1 corinthians",
-    "2 corinthians",
-    "galatians",
-    "ephesians",
-    "philippians",
-    "colossians",
-    "1 thessalonians",
-    "2 thessalonians",
-    "1 timothy",
-    "2 timothy",
-    "titus",
-    "philemon",
-    "hebrews",
-    "james",
-    "1 peter",
-    "2 peter",
-    "1 john",
-    "2 john",
-    "3 john",
-    "jude",
-    "revelation",
-  ];
-
-  // detect book
-  let detectedBook = null;
-
-  for (const book of books) {
-
-    if (text.includes(book)) {
-
-      detectedBook = book;
-
-      break;
-    }
-  }
-
-  if (!detectedBook) {
-    return null;
-  }
-
-  // remove book name from text
-  let remaining = text.replace(
-    detectedBook,
-    ""
-  ).trim();
-
-  // extract numbers
-  const numbers =
-    remaining.match(/\d+/g);
-
-  if (!numbers || numbers.length === 0) {
-    return null;
-  }
-
-  let chapter = null;
-
-  let verse = null;
-
-  // CASE 1:
-  // john 3 16
-  if (numbers.length >= 2) {
-
-    chapter = numbers[0];
-
-    verse = numbers[1];
-  }
-
-  // CASE 2:
-  // john 316
-  else if (numbers.length === 1) {
-
-    const combined = numbers[0];
-
-    if (combined.length >= 3) {
-
-      chapter = combined[0];
-
-      verse = combined.slice(1);
-    }
-  }
-
-  if (!chapter || !verse) {
-    return null;
-  }
-
-  return `${detectedBook} ${chapter}:${verse}`;
 };
+  
+
+  
+  
   const getVerse = (input) => {
+    try {
+      let text = input.toLowerCase().trim();
 
-  try {
+      text = text.replace(/(\d+)\s+(\d+)$/, "$1:$2");
 
-    let text = input.toLowerCase().trim();
+      const match = text.match(/(.+)\s(\d+):(\d+)/);
 
-    const match =
-      text.match(/(.+)\s(\d+):(\d+)/);
+      if (!match) return "Invalid format. Try 'John 3:16'";
 
-    if (!match) {
-      return "Invalid format. Try John 3:16";
+      let bookInput = match[1].trim();
+      const chapter = match[2];
+      const verseNum = match[3];
+
+      const book =
+        bookAliases[bookInput] ||
+        bookAliases[bookInput.replace(/\./g, "")];
+
+      if (!book) return "Unknown book name.";
+
+      const result = bible[book]?.[chapter]?.[verseNum];
+
+      if (result) {
+        return `${book} ${chapter}:${verseNum} - ${result}`;
+      } else {
+        return "Verse not found.";
+      }
+    } catch {
+      return "Error reading verse.";
     }
+  };
 
-    let bookInput = match[1].trim();
-
-    const chapter = match[2];
-
-    const verse = match[3];
-
-    const book =
-      bookAliases[bookInput] ||
-      bookAliases[
-        bookInput.replace(/\./g, "")
-      ];
-
-    if (!book) {
-      return "Unknown book name.";
-    }
-
-    const result =
-      bible[book]?.[chapter]?.[verse];
-
-    if (result) {
-
-      return `${book} ${chapter}:${verse} - ${result}`;
-
-    } else {
-
-      return "Verse not found.";
-    }
-
-  } catch {
-
-    return "Error reading verse.";
-  }
-};
   
   const fetchVerse = (inputValue) => {
     const result = getVerse(inputValue || query);
