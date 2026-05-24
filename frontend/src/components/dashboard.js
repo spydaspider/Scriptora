@@ -1,20 +1,25 @@
 import styles from './dashboard.module.css';
-import { useState, useEffect } from 'react';
-import bible from '../components/data/bible.json';
-import bookAliases from '../components/helpers/bookaliases.js';
+import { useState } from 'react';
 import buildBible from '../components/helpers/buildBible';
 import rawBible from '../components/data/bible.json';
+import bookAliases from '../components/helpers/bookaliases.js';
 import stringSimilarity from "string-similarity";
 
+// -------------------------------------
+// BUILD BIBLE
+// -------------------------------------
+const bible = buildBible(rawBible);
 
-
-//  Speech Recognition
+// -------------------------------------
+// SPEECH RECOGNITION
+// -------------------------------------
 const startSpeechRecognition = (onResult) => {
   const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
-    alert("Speech Recognition not supported in this browser");
+    alert("Speech Recognition not supported");
     return;
   }
 
@@ -24,46 +29,47 @@ const startSpeechRecognition = (onResult) => {
   recognition.interimResults = false;
   recognition.lang = "en-US";
 
-  let isListening = false;
+  let active = true;
 
   recognition.onstart = () => {
-    console.log("Speech recognition started");
-    isListening = true;
+    console.log("VOICE RECOGNITION STARTED");
   };
 
   recognition.onresult = (event) => {
     const transcript =
-      event.results[event.results.length - 1][0].transcript;
+      event.results[event.results.length - 1][0]
+        .transcript;
 
-    console.log("Heard:", transcript);
+    console.log("HEARD:", transcript);
 
     onResult(transcript.toLowerCase());
   };
 
   recognition.onerror = (err) => {
-    console.error("Speech error:", err);
-
-    if (err.error === "aborted") {
-      return;
-    }
+    console.error("VOICE ERROR:", err);
   };
 
   recognition.onend = () => {
-    console.log("Speech recognition ended");
+    console.log("VOICE RESTARTING");
 
-    isListening = false;
-
-    // restart safely
-    setTimeout(() => {
-      if (!isListening) {
+    if (active) {
+      setTimeout(() => {
         recognition.start();
-      }
-    }, 1000);
+      }, 1000);
+    }
   };
 
   recognition.start();
+
+  return () => {
+    active = false;
+    recognition.stop();
+  };
 };
 
+// -------------------------------------
+// NUMBER WORDS
+// -------------------------------------
 const numberWords = {
   one: 1,
   two: 2,
@@ -91,52 +97,50 @@ const numberWords = {
 };
 
 const convertWordsToNumbers = (text) => {
-
   const words = text.split(" ");
 
   let result = [];
 
   for (let i = 0; i < words.length; i++) {
-
-    const current =
-      numberWords[words[i]];
-
-    const next =
-      numberWords[words[i + 1]];
+    const current = numberWords[words[i]];
+    const next = numberWords[words[i + 1]];
 
     if (
       current >= 20 &&
       next &&
       next < 10
     ) {
-
       result.push(current + next);
-
       i++;
-
     } else if (current) {
-
       result.push(current);
-
     } else {
-
       result.push(words[i]);
     }
   }
 
   return result.join(" ");
 };
+
+// -------------------------------------
+// SMART BIBLE PARSER
+// -------------------------------------
 const parseBibleReferenceSmart = (input) => {
   let text = input.toLowerCase();
 
-  // normalize speech noise
+  // -------------------------------------
+  // NORMALIZE TEXT
+  // -------------------------------------
   text = text
     .replace(/vs\.?/g, "verse")
-    .replace(/chapter/g, "chapter");
+    .replace(/\s*:\s*/g, ":")
+    .replace(/[.,!?]/g, "");
 
   text = convertWordsToNumbers(text);
-  text = text.replace(/[.,!?]/g, "");
 
+  // -------------------------------------
+  // SPEECH CORRECTIONS
+  // -------------------------------------
   const corrections = {
     "some more": "samuel",
     "first some more": "1 samuel",
@@ -147,83 +151,144 @@ const parseBibleReferenceSmart = (input) => {
     "sams": "psalms",
     "salms": "psalms",
     "xodus": "exodus",
+    "execost": "exodus",
     "revelations": "revelation"
   };
 
   for (const key in corrections) {
-    text = text.replaceAll(key, corrections[key]);
+    text = text.replaceAll(
+      key,
+      corrections[key]
+    );
   }
 
+  // -------------------------------------
+  // NORMALIZE ORDINALS
+  // -------------------------------------
   text = text
     .replaceAll("first", "1")
     .replaceAll("second", "2")
     .replaceAll("third", "3");
 
-  const numberedBooks = [
-    "1 samuel","2 samuel","1 kings","2 kings",
-    "1 chronicles","2 chronicles","1 corinthians",
-    "2 corinthians","1 thessalonians","2 thessalonians",
-    "1 timothy","2 timothy","1 peter","2 peter",
-    "1 john","2 john","3 john"
-  ];
-
-  // -----------------------------
-  // STEP 1: LOCK BOOK FIRST
-  // -----------------------------
+  // -------------------------------------
+  // DETECT BOOK
+  // -------------------------------------
   let detectedBook = null;
 
-  for (const book of numberedBooks) {
+  const books =
+    Object.keys(bookAliases)
+      .sort((a, b) => b.length - a.length);
+
+  // direct contains match
+  for (const book of books) {
     if (text.includes(book)) {
       detectedBook = book;
       break;
     }
   }
 
-  // fallback fuzzy match ONLY if needed
+  // fuzzy fallback
   if (!detectedBook) {
-    const books = Object.keys(bookAliases);
+    const words = text.split(" ");
+
     let bestScore = 0;
 
     for (const book of books) {
-      const score = stringSimilarity.compareTwoStrings(text, book);
+      for (let i = 0; i < words.length; i++) {
 
-      if (score > bestScore && score > 0.45) {
-        bestScore = score;
-        detectedBook = book;
+        const chunk1 = words[i];
+
+        const chunk2 =
+          i < words.length - 1
+            ? `${words[i]} ${words[i + 1]}`
+            : chunk1;
+
+        const score1 =
+          stringSimilarity.compareTwoStrings(
+            chunk1,
+            book
+          );
+
+        const score2 =
+          stringSimilarity.compareTwoStrings(
+            chunk2,
+            book
+          );
+
+        if (
+          score1 > bestScore &&
+          score1 > 0.75
+        ) {
+          bestScore = score1;
+          detectedBook = book;
+        }
+
+        if (
+          score2 > bestScore &&
+          score2 > 0.75
+        ) {
+          bestScore = score2;
+          detectedBook = book;
+        }
       }
     }
   }
 
-  if (!detectedBook) return null;
+  if (!detectedBook) {
+    console.log("NO BOOK FOUND");
+    return null;
+  }
 
-  // -----------------------------
-  // STEP 2: REMOVE BOOK FROM TEXT
-  // -----------------------------
-  let remaining = text.replace(detectedBook, "").trim();
+  console.log("BOOK FOUND:", detectedBook);
 
-  // -----------------------------
-  // STEP 3: PRIORITISED PARSING
-  // -----------------------------
+  // -------------------------------------
+  // REMOVE BOOK
+  // -------------------------------------
+  const remaining = text
+    .replace(detectedBook, "")
+    .trim();
+
+  // -------------------------------------
+  // FIND CHAPTER + VERSE
+  // -------------------------------------
   let chapter = null;
   let verse = null;
 
-  // HIGH PRIORITY: "chapter X verse Y"
-  const pattern = remaining.match(/chapter\s*(\d+)\s*verse\s*(\d+)/);
-  if (pattern) {
-    chapter = pattern[1];
-    verse = pattern[2];
+  // "chapter 4 verse 2"
+  let match = remaining.match(
+    /chapter\s*(\d+)\s*verse\s*(\d+)/
+  );
+
+  if (match) {
+    chapter = match[1];
+    verse = match[2];
   }
 
-  // MEDIUM: explicit words
+  // "chapter 4:2"
   if (!chapter || !verse) {
-    const chapterMatch = remaining.match(/chapter\s*(\d+)/);
-    const verseMatch = remaining.match(/verse\s*(\d+)/);
+    match = remaining.match(
+      /chapter\s*(\d+):(\d+)/
+    );
 
-    if (chapterMatch) chapter = chapterMatch[1];
-    if (verseMatch) verse = verseMatch[1];
+    if (match) {
+      chapter = match[1];
+      verse = match[2];
+    }
   }
 
-  // LOW: fallback numbers
+  // "4:2"
+  if (!chapter || !verse) {
+    match = remaining.match(
+      /(\d+):(\d+)/
+    );
+
+    if (match) {
+      chapter = match[1];
+      verse = match[2];
+    }
+  }
+
+  // fallback raw numbers
   if (!chapter || !verse) {
     const nums = remaining.match(/\d+/g);
 
@@ -233,7 +298,17 @@ const parseBibleReferenceSmart = (input) => {
     }
   }
 
-  if (!chapter || !verse) return null;
+  if (!chapter || !verse) {
+    console.log("NO CHAPTER/VERSE FOUND");
+    return null;
+  }
+
+  console.log(
+    "PARSED:",
+    detectedBook,
+    chapter,
+    verse
+  );
 
   return {
     book: bookAliases[detectedBook],
@@ -241,39 +316,114 @@ const parseBibleReferenceSmart = (input) => {
     verse
   };
 };
+
+// -------------------------------------
+// COMPONENT
+// -------------------------------------
 const Dashboard = () => {
-  const [query, setQuery] = useState("");
-  const [verse, setVerse] = useState("");
-  const [isProjecting, setIsProjecting] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const bible = buildBible(rawBible);
-  const [liveTranscript, setLiveTranscript] =
-  useState("");
- const startListening = () => {
 
-  if (isListening) return;
+  const [query, setQuery] =
+    useState("");
 
-  setIsListening(true);
+  const [verse, setVerse] =
+    useState("");
 
-  startSpeechRecognition((text) => {
+  const [isProjecting, setIsProjecting] =
+    useState(false);
 
-    if (!text || text.trim() === "") {
-      return;
-    }
+  const [isListening, setIsListening] =
+    useState(false);
 
-    setLiveTranscript(prev => {
+  // -------------------------------------
+  // GET VERSE
+  // -------------------------------------
+  const getVerse = (input) => {
+    try {
 
-      // rolling transcript memory
-      const updated =
-        `${prev} ${text}`.trim();
+      let text =
+        input.toLowerCase().trim();
 
-      console.log(
-        "LIVE TRANSCRIPT:",
-        updated
+      text = text.replace(
+        /(\d+)\s+(\d+)$/,
+        "$1:$2"
       );
 
+      const match = text.match(
+        /(.+)\s(\d+):(\d+)/
+      );
+
+      if (!match) {
+        return "Invalid format. Example: John 3:16";
+      }
+
+      let bookInput =
+        match[1].trim();
+
+      const chapter =
+        match[2];
+
+      const verseNum =
+        match[3];
+
+      const book =
+        bookAliases[bookInput] ||
+        bookAliases[
+          bookInput.replace(/\./g, "")
+        ];
+
+      if (!book) {
+        return "Unknown book.";
+      }
+
+      const result =
+        bible[book]?.[chapter]?.[verseNum];
+
+      if (result) {
+        return `${book} ${chapter}:${verseNum} - ${result}`;
+      }
+
+      return "Verse not found.";
+
+    } catch {
+      return "Error reading verse.";
+    }
+  };
+
+  // -------------------------------------
+  // FETCH VERSE
+  // -------------------------------------
+  const fetchVerse = (inputValue) => {
+    const result = getVerse(
+      inputValue || query
+    );
+
+    setVerse(result);
+  };
+
+  // -------------------------------------
+  // START LISTENING
+  // -------------------------------------
+  const startListening = () => {
+
+    if (isListening) return;
+
+    setIsListening(true);
+
+    startSpeechRecognition((text) => {
+
+      if (!text || text.trim() === "") {
+        return;
+      }
+
+      console.log(
+        "RAW SPEECH:",
+        text
+      );
+
+      // IMPORTANT:
+      // parse ONLY latest sentence
       const parsed =
-        parseBibleReferenceSmart(updated);
+        parseBibleReferenceSmart(text);
 
       if (parsed) {
 
@@ -289,86 +439,69 @@ const Dashboard = () => {
 
         fetchVerse(verseRef);
 
-        // clear memory after success
-        return "";
-      }
-
-      // keep recent transcript only
-      return updated.slice(-250);
-    });
-  });
-};
-  
-
-  
-  
-  const getVerse = (input) => {
-    try {
-      let text = input.toLowerCase().trim();
-
-      text = text.replace(/(\d+)\s+(\d+)$/, "$1:$2");
-
-      const match = text.match(/(.+)\s(\d+):(\d+)/);
-
-      if (!match) return "Invalid format. Try 'John 3:16'";
-
-      let bookInput = match[1].trim();
-      const chapter = match[2];
-      const verseNum = match[3];
-
-      const book =
-        bookAliases[bookInput] ||
-        bookAliases[bookInput.replace(/\./g, "")];
-
-      if (!book) return "Unknown book name.";
-
-      const result = bible[book]?.[chapter]?.[verseNum];
-
-      if (result) {
-        return `${book} ${chapter}:${verseNum} - ${result}`;
       } else {
-        return "Verse not found.";
+
+        console.log(
+          "NO VALID VERSE FOUND"
+        );
       }
-    } catch {
-      return "Error reading verse.";
-    }
+    });
   };
 
-  
-  const fetchVerse = (inputValue) => {
-    const result = getVerse(inputValue || query);
-    setVerse(result);
-  };
-
+  // -------------------------------------
+  // UI
+  // -------------------------------------
   return (
-    <div className={isProjecting ? styles.projector : styles.container}>
-
+    <div
+      className={
+        isProjecting
+          ? styles.projector
+          : styles.container
+      }
+    >
       {!isProjecting && (
         <>
           <h1>Bible Projector</h1>
 
           <div className={styles.controls}>
+
             <input
               type="text"
               placeholder="Enter verse e.g. John 3:16"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) =>
+                setQuery(e.target.value)
+              }
               onKeyDown={(e) => {
-                if (e.key === "Enter") fetchVerse();
+                if (e.key === "Enter") {
+                  fetchVerse();
+                }
               }}
             />
 
-            <button onClick={() => fetchVerse()}>Show</button>
-           <button
-  onClick={startListening}
-  disabled={isListening}
->
-  {isListening ? "Voice Active" : "Start Voice Control"}
-</button>
-            <button onClick={() => setIsProjecting(true)}>
+            <button
+              onClick={() => fetchVerse()}
+            >
+              Show
+            </button>
+
+            <button
+              onClick={startListening}
+              disabled={isListening}
+            >
+              {isListening
+                ? "Voice Active"
+                : "Start Voice Control"}
+            </button>
+
+            <button
+              onClick={() =>
+                setIsProjecting(true)
+              }
+            >
               Start Projection
             </button>
-            
+
           </div>
         </>
       )}
@@ -380,7 +513,9 @@ const Dashboard = () => {
       {isProjecting && (
         <button
           className={styles.exitBtn}
-          onClick={() => setIsProjecting(false)}
+          onClick={() =>
+            setIsProjecting(false)
+          }
         >
           Exit
         </button>
