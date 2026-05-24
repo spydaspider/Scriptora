@@ -1,1 +1,62 @@
+# =========================
+# Dependencies
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# Environment files
+# =========================
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# =========================
+# Build outputs
+# =========================
+dist/
+build/
+out/
+
+# React / frontend builds
+frontend/build/
+
+# =========================
+# Uploads (VERY IMPORTANT for Whisper project)
+# =========================
+backend/uploads/
+uploads/
+
+# =========================
+# Whisper models & binaries (optional but recommended)
+# (ONLY if you don't want to push large files)
+# =========================
+whisper.cpp/build/
+whisper.cpp/models/*.bin
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# IDE files
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Coverage
+# =========================
+coverage/
