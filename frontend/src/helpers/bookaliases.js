@@ -57,12 +57,12 @@ const bookAliases = {
 
   job: "Job",
 
-  psalm: "Psalm",
-  psalms: "Psalm",
-  ps: "Psalm",
-  some: "psalm",
-  sum: "psalm",
-  sam: "psalm",
+  psalm: "psalms",
+  psalms: "psalms",
+  ps: "psalms",
+  some: "psalms",
+  sum: "psalms",
+  sam: "psalms",
 
   proverbs: "Proverbs",
   prov: "Proverbs",

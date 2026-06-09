@@ -1,6 +1,6 @@
 import logo from './logo.svg';
 import './App.css';
-import Dashboard from './components/dashboard';
+import Dashboard from './pages/dashboard';
 import {BrowserRouter,Routes,Route,Navigate } from 'react-router-dom';
 
   
@@ -17,6 +17,3 @@ export default function App() {
     </div>
   );
 }
-
-
-
