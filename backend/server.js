@@ -1,46 +1,57 @@
 const express = require("express");
 const cors = require("cors");
-const multer = require("multer");
+const http = require("http");
+const { Server } = require("socket.io");
 const { transcribeAudio } = require("./services/whisper");
 
 const app = express();
 app.use(cors());
-app.use(express.json());
 
-const upload = multer({ dest: "uploads/" });
+const server = http.createServer(app);
 
-// -------------------------------------
-// MAIN ROUTE
-// -------------------------------------
-app.post("/transcribe", upload.single("audio"), async (req, res) => {
-  try {
-    console.log("FILE RECEIVED:", req.file);
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: "No audio file received"
-      });
-    }
-
-    const filePath = req.file.path;
-
-    const result = await transcribeAudio(filePath);
-
-    res.json({
-      success: true,
-      text: result
-    });
-
-  } catch (err) {
-    console.error(err);
-
-    res.status(500).json({
-      success: false,
-      error: "Transcription failed"
-    });
+// IMPORTANT: Socket.IO FIX
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
   }
 });
 
-app.listen(4000, () => {
-  console.log("Backend running on port 4000");
+app.get("/", (req, res) => {
+  res.json({ status: "Voice server running" });
+});
+
+// -------------------------------------
+// SOCKET CONNECTION
+// -------------------------------------
+io.on("connection", (socket) => {
+  console.log("Client connected:", socket.id);
+
+  // RECEIVE AUDIO CHUNKS
+  socket.on("audio-chunk", async (data) => {
+    try {
+      // data = { filePath }
+      console.log("Chunk received:", data.filePath);
+
+      const text = await transcribeAudio(data.filePath);
+
+      socket.emit("transcript", {
+        text
+      });
+
+    } catch (err) {
+      console.error("Chunk error:", err);
+      socket.emit("transcript", {
+        text: ""
+      });
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
+});
+
+server.listen(4000, () => {
+  console.log("Server running on port 4000");
 });

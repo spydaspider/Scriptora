@@ -1,6 +1,6 @@
 const bibleFixes = require("../services/utils/bibleFixes");
 const stringSimilarity = require("string-similarity");
-const bookAliases = require("./utils/bookAliases.js");
+const bookAliases = require("./utils/bookAliases");
 
 // ------------------------------
 // ROMAN NUMERALS
@@ -18,27 +18,28 @@ const convertRoman = (text) => {
 };
 
 // ------------------------------
-// BOOK DETECTION (ROBUST)
+// BOOK DETECTION
 // ------------------------------
 const detectBook = (text) => {
   const books = Object.keys(bookAliases)
     .sort((a, b) => b.length - a.length);
 
-  // direct match first
+  // direct match
   for (const book of books) {
     if (text.includes(book)) return book;
   }
 
   // fuzzy match
   let best = { book: null, score: 0 };
-
   const words = text.split(" ");
 
   for (const book of books) {
     for (let i = 0; i < words.length; i++) {
 
       const w1 = words[i];
-      const w2 = words[i + 1] ? `${words[i]} ${words[i + 1]}` : w1;
+      const w2 = words[i + 1]
+        ? `${words[i]} ${words[i + 1]}`
+        : w1;
 
       const s1 = stringSimilarity.compareTwoStrings(w1, book);
       const s2 = stringSimilarity.compareTwoStrings(w2, book);
@@ -57,7 +58,7 @@ const detectBook = (text) => {
 };
 
 // ------------------------------
-// MAIN PARSER V3
+// MAIN PARSER (FIXED)
 // ------------------------------
 const parseBibleReference = (input) => {
 
@@ -65,87 +66,109 @@ const parseBibleReference = (input) => {
 
   let text = input.toLowerCase().trim();
 
-  // STEP 1: cleanup speech noise
+  // STEP 1: speech cleanup
   text = bibleFixes(text);
 
+  // normalize words
   text = text
     .replace(/vs\.?/g, "verse")
-    .replace(/\s*:\s*/g, ":")
+    .replace(/verses?/g, "verse")
+    .replace(/charter/g, "chapter")
     .replace(/[.,!?]/g, "");
 
-  // STEP 2: normalize words
+  // STEP 2: number words + simple cleanup
   text = text
-    .replace(/charter/g, "chapter")
-    .replace(/verses?/g, "verse")
     .replace(/first/g, "1")
     .replace(/second/g, "2")
     .replace(/third/g, "3");
 
-  // STEP 3: roman numerals → numbers
+  // STEP 3: roman numerals
   text = convertRoman(text);
 
   // STEP 4: detect book
   const detectedBook = detectBook(text);
 
-  if (!detectedBook) {
-    return null;
-  }
+  if (!detectedBook) return null;
 
-  // STEP 5: remove book from string
-  const remaining = text
-    .replace(detectedBook, "")
-    .trim();
+  const book = bookAliases[detectedBook];
+
+  // remove book from text
+  const remaining = text.replace(detectedBook, "").trim();
 
   let chapter = null;
   let verse = null;
 
+  // --------------------------
   // FORMAT 1: chapter X verse Y
-  let match = remaining.match(
-    /chapter\s*(\d+)\s*verse\s*(\d+)/
-  );
-
+  // --------------------------
+  let match = remaining.match(/chapter\s*(\d+)\s*verse\s*(\d+)/);
   if (match) {
-    chapter = match[1];
-    verse = match[2];
+    chapter = Number(match[1]);
+    verse = Number(match[2]);
   }
 
+  // --------------------------
   // FORMAT 2: X:Y
+  // --------------------------
   if (!chapter || !verse) {
     match = remaining.match(/(\d+)\s*:\s*(\d+)/);
-
     if (match) {
-      chapter = match[1];
-      verse = match[2];
+      chapter = Number(match[1]);
+      verse = Number(match[2]);
     }
   }
 
+  // --------------------------
   // FORMAT 3: X Y
+  // --------------------------
   if (!chapter || !verse) {
     match = remaining.match(/(\d+)\s+(\d+)/);
-
     if (match) {
-      chapter = match[1];
-      verse = match[2];
+      chapter = Number(match[1]);
+      verse = Number(match[2]);
     }
   }
 
-  // FORMAT 4: fallback numbers
-  if (!chapter) {
+  // --------------------------
+  // FORMAT 4: chapter only
+  // --------------------------
+  const chapterOnly = remaining.match(/chapter\s*(\d+)/);
+  if (chapterOnly && !chapter) {
+    chapter = Number(chapterOnly[1]);
+  }
+
+  // --------------------------
+  // FORMAT 5: verse only
+  // --------------------------
+  const verseOnly = remaining.match(/verse\s*(\d+)/);
+  if (verseOnly && !verse) {
+    verse = Number(verseOnly[1]);
+  }
+
+  // --------------------------
+  // fallback numbers
+  // --------------------------
+  if (!chapter || !verse) {
     const nums = remaining.match(/\d+/g);
 
     if (nums && nums.length >= 2) {
-      chapter = nums[0];
-      verse = nums[1];
+      if (!chapter) chapter = Number(nums[0]);
+      if (!verse) verse = Number(nums[1]);
+    } else if (nums && nums.length === 1) {
+      if (!chapter) chapter = Number(nums[0]);
     }
   }
 
-  if (!chapter) return null;
+  // --------------------------
+  // RETURN PARTIAL OR FULL
+  // --------------------------
+  if (!chapter && !verse) return null;
 
   return {
-    book: bookAliases[detectedBook],
+    book,
     chapter,
-    verse: verse || null,
-    confidence: 0.92
+    verse,
+    partial: true
   };
 };
 

@@ -1,58 +1,123 @@
 const { exec } = require("child_process");
-const { parseBibleReference } = require("./bibleParser");
-const bibleFixes = require("../services/utils/bibleFixes");
+const fs = require("fs");
+const path = require("path");
 
-const WHISPER_PATH =
-  "../whisper.cpp/build/bin/Release/whisper-cli.exe";
+// ------------------------------------
+// IMPORTANT PATHS (FIXED)
+// ------------------------------------
+const ROOT = path.resolve("C:/Users/dicks/Documents/Scriptora");
 
-const MODEL_PATH =
-  "../whisper.cpp/models/ggml-base.en.bin";
+const WHISPER_PATH = path.join(
+  ROOT,
+  "whisper.cpp",
+  "build",
+  "bin",
+  "Release",
+  "whisper-cli.exe"
+);
 
-// -------------------------------------
-// CLEAN OUTPUT PIPELINE
-// -------------------------------------
-const cleanOutput = (text) => {
+const MODEL_PATH = path.join(
+  ROOT,
+  "whisper.cpp",
+  "models",
+  "ggml-base.en.bin"
+);
 
-  const raw = text
-    .split("\n")
-    .filter(line => line.trim())
-    .pop()
-    .trim();
-
-  const fixed = bibleFixes(raw);
-
-  const parsed = parseBibleReference(fixed);
-
-  if (parsed) {
-    return `${parsed.book} ${parsed.chapter}:${parsed.verse}`;
+// ------------------------------------
+// VALIDATE FILE
+// ------------------------------------
+function validateFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error("File not found");
   }
 
-  return fixed;
-};
+  const size = fs.statSync(filePath).size;
 
-// -------------------------------------
-// WHISPER EXECUTION
-// -------------------------------------
-const transcribeAudio = (filePath) => {
+  if (size < 1000) {
+    throw new Error("Audio file too small");
+  }
+}
+
+// ------------------------------------
+// CONVERT WEBM → WAV
+// ------------------------------------
+function convertToWav(inputPath) {
+  const outputPath = inputPath.replace(".webm", ".wav");
+
   return new Promise((resolve, reject) => {
+    const cmd = `
+      ffmpeg -y -hide_banner -loglevel error
+      -i "${inputPath}"
+      -ar 16000
+      -ac 1
+      -c:a pcm_s16le
+      "${outputPath}"
+    `;
 
-    const cmd = `"${WHISPER_PATH}" -m "${MODEL_PATH}" -f "${filePath}" -nt`;
+    exec(cmd, (err) => {
+      if (err) {
+        return reject(new Error("FFmpeg failed"));
+      }
 
-   exec(cmd, (err, stdout, stderr) => {
+      if (!fs.existsSync(outputPath)) {
+        return reject(new Error("WAV not created"));
+      }
 
-  if (err) {
-    console.error("WHISPER ERROR:", err);
-    console.error("STDERR:", stderr);
-    return reject(err);
-  }
-
-  console.log("WHISPER STDOUT:", stdout);
-  console.log("WHISPER STDERR:", stderr);
-
-  const result = cleanOutput(stdout);
-  resolve(result);
-});
+      resolve(outputPath);
+    });
   });
-};
+}
+
+// ------------------------------------
+// RUN WHISPER
+// ------------------------------------
+function runWhisper(filePath) {
+  return new Promise((resolve, reject) => {
+    const cmd = `"${WHISPER_PATH}" -m "${MODEL_PATH}" -f "${filePath}" -nt -l en`;
+
+    exec(cmd, (err, stdout, stderr) => {
+      if (err) {
+        return reject(new Error(stderr || "Whisper failed"));
+      }
+
+      const text = clean(stdout + stderr);
+      resolve(text);
+    });
+  });
+}
+
+// ------------------------------------
+// CLEAN OUTPUT
+// ------------------------------------
+function clean(text) {
+  return text
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l =>
+      l &&
+      !l.includes("whisper_") &&
+      !l.includes("time =") &&
+      !l.includes("load")
+    )
+    .join(" ")
+    .trim();
+}
+
+// ------------------------------------
+// MAIN PIPELINE
+// ------------------------------------
+async function transcribeAudio(filePath) {
+  validateFile(filePath);
+
+  console.log("INPUT:", filePath);
+
+  const wav = await convertToWav(filePath);
+  console.log("WAV CREATED:", wav);
+
+  const text = await runWhisper(wav);
+  console.log("TRANSCRIPT:", text);
+
+  return text || "No speech detected";
+}
 
 module.exports = { transcribeAudio };

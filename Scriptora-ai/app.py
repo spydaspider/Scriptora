@@ -1,13 +1,14 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from faster_whisper import WhisperModel
+import tempfile
 import os
 
 app = Flask(__name__)
 CORS(app)
 
 model = WhisperModel(
-    "base",
+    "small",
     device="cpu",
     compute_type="int8"
 )
@@ -15,31 +16,34 @@ model = WhisperModel(
 @app.route("/transcribe", methods=["POST"])
 def transcribe_audio():
 
-    if "audio" not in request.files:
-        return jsonify({
-            "error": "No audio file"
-        }), 400
+    try:
+        if "audio" not in request.files:
+            return jsonify({"error": "No audio file"}), 400
 
-    audio = request.files["audio"]
+        audio = request.files["audio"]
 
-    temp_path = "temp.mp3"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+            temp_path = tmp.name
 
-    audio.save(temp_path)
+        audio.save(temp_path)
 
-    segments, info = model.transcribe(
-        temp_path
-    )
+        segments, info = model.transcribe(
+            temp_path,
+            beam_size=5,          # 🔥 improves accuracy
+            vad_filter=True,      # 🔥 removes silence noise
+            temperature=0.0       # 🔥 makes output stable
+        )
 
-    text = ""
+        text = " ".join([s.text for s in segments]).strip().lower()
 
-    for segment in segments:
-        text += segment.text + " "
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
-    os.remove(temp_path)
+        return jsonify({"text": text})
 
-    return jsonify({
-        "text": text.strip()
-    })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
-    app.run(port=5000)
+    app.run(port=5000, debug=True)
