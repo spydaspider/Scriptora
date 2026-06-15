@@ -1,5 +1,5 @@
 import styles from "./dashboard.module.css";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 import { startSpeechRecognition } from "../services/speechRecognition";
 import { parseBibleReferenceSmart } from "../services/bibleParser";
@@ -13,9 +13,9 @@ const Dashboard = () => {
   const [isListening, setIsListening] = useState(false);
 
   // -----------------------------------
-  // CONTEXT MEMORY (CRITICAL)
+  // CONTEXT MEMORY (PERSISTENT)
   // -----------------------------------
-  const [currentReference, setCurrentReference] = useState({
+  const currentReference = useRef({
     book: null,
     chapter: null,
     verse: null
@@ -24,113 +24,218 @@ const Dashboard = () => {
   // -----------------------------------
   // FETCH VERSE
   // -----------------------------------
-  const fetchVerse = (input) => {
-    const result = getVerse(input || query);
+  const fetchVerse = (reference) => {
+
+    const result =
+      getVerse(reference || query);
+
     setVerse(result);
   };
 
   // -----------------------------------
-  // SPEECH HANDLER (FIXED LOGIC)
+  // HANDLE SPEECH
   // -----------------------------------
   const handleSpeech = (text) => {
 
-    if (!text || text.trim() === "") return;
+    if (!text || text.trim() === "") {
+      return;
+    }
 
     console.log("RAW SPEECH:", text);
 
-    const parsed = parseBibleReferenceSmart(text);
+    const parsed =
+      parseBibleReferenceSmart(text);
 
     console.log("PARSED:", parsed);
 
     if (!parsed) return;
 
     // -----------------------------------
-    // IMPORTANT FIX: SAFE CONTEXT MERGE
+    // COMMANDS
     // -----------------------------------
-    const book = parsed.book ?? currentReference.book;
+    if (parsed.command) {
 
-    // ONLY trust chapter if book exists in parsed
+      const current =
+        currentReference.current;
+
+      if (
+        parsed.command === "nextVerse" &&
+        current.book &&
+        current.chapter &&
+        current.verse
+      ) {
+
+        const nextVerse =
+          Number(current.verse) + 1;
+
+        const ref =
+          `${current.book} ${current.chapter}:${nextVerse}`;
+
+        currentReference.current = {
+          ...current,
+          verse: nextVerse
+        };
+
+        setQuery(ref);
+        fetchVerse(ref);
+
+        return;
+      }
+
+      if (
+        parsed.command === "previousVerse" &&
+        current.book &&
+        current.chapter &&
+        current.verse > 1
+      ) {
+
+        const prevVerse =
+          Number(current.verse) - 1;
+
+        const ref =
+          `${current.book} ${current.chapter}:${prevVerse}`;
+
+        currentReference.current = {
+          ...current,
+          verse: prevVerse
+        };
+
+        setQuery(ref);
+        fetchVerse(ref);
+
+        return;
+      }
+    }
+
+    // -----------------------------------
+    // MERGE WITH CONTEXT
+    // -----------------------------------
+    const book =
+      parsed.book ||
+      currentReference.current.book;
+
     const chapter =
       parsed.book
         ? parsed.chapter
-        : currentReference.chapter;
+        : (
+            parsed.chapter &&
+            !parsed.verse
+          )
+        ? parsed.chapter
+        : currentReference.current.chapter;
 
-    const verse = parsed.verse;
+    const verseNumber =
+      parsed.verse;
 
-    // -----------------------------------
-    // FULL REFERENCE (Book Chapter Verse)
-    // -----------------------------------
-    if (book && chapter && verse) {
-
-      const ref = `${book} ${chapter}:${verse}`;
-
-      setCurrentReference({
-        book,
-        chapter,
-        verse
-      });
-
-      setQuery(ref);
-      fetchVerse(ref);
-      return;
-    }
+    console.log("MERGED:", {
+      book,
+      chapter,
+      verse: verseNumber
+    });
 
     // -----------------------------------
-    // BOOK + CHAPTER (Genesis chapter 4)
-    // -----------------------------------
-    if (book && chapter && !verse) {
-
-      const ref = `${book} ${chapter}:1`;
-
-      setCurrentReference({
-        book,
-        chapter,
-        verse: 1
-      });
-
-      setQuery(ref);
-      fetchVerse(ref);
-      return;
-    }
-
-    // -----------------------------------
-    // VERSE ONLY (CRITICAL FIX)
-    // Verse 5 → uses context properly
+    // FULL REFERENCE
+    // Genesis 4:5
     // -----------------------------------
     if (
-      verse &&
-      currentReference.book &&
-      currentReference.chapter
+      book &&
+      chapter &&
+      verseNumber
     ) {
 
       const ref =
-        `${currentReference.book} ${currentReference.chapter}:${verse}`;
+        `${book} ${chapter}:${verseNumber}`;
 
-      setCurrentReference(prev => ({
-        ...prev,
-        verse
-      }));
+      currentReference.current = {
+        book,
+        chapter,
+        verse: verseNumber
+      };
 
       setQuery(ref);
+
       fetchVerse(ref);
+
       return;
     }
 
     // -----------------------------------
-    // CHAPTER CHANGE (ONLY WITH BOOK)
+    // BOOK + CHAPTER
+    // Genesis chapter 4
     // -----------------------------------
-    if (parsed.chapter && parsed.book && !parsed.verse) {
+    if (
+      parsed.book &&
+      parsed.chapter &&
+      !parsed.verse
+    ) {
 
-      const ref = `${parsed.book} ${parsed.chapter}:1`;
+      const ref =
+        `${parsed.book} ${parsed.chapter}:1`;
 
-      setCurrentReference({
+      currentReference.current = {
         book: parsed.book,
         chapter: parsed.chapter,
         verse: 1
-      });
+      };
 
       setQuery(ref);
+
       fetchVerse(ref);
+
+      return;
+    }
+
+    // -----------------------------------
+    // CHAPTER ONLY
+    // chapter 6
+    // -----------------------------------
+    if (
+      !parsed.book &&
+      parsed.chapter &&
+      !parsed.verse &&
+      currentReference.current.book
+    ) {
+
+      const ref =
+        `${currentReference.current.book} ${parsed.chapter}:1`;
+
+      currentReference.current = {
+        book:
+          currentReference.current.book,
+        chapter: parsed.chapter,
+        verse: 1
+      };
+
+      setQuery(ref);
+
+      fetchVerse(ref);
+
+      return;
+    }
+
+    // -----------------------------------
+    // VERSE ONLY
+    // verse 5
+    // -----------------------------------
+    if (
+      !parsed.book &&
+      parsed.verse &&
+      currentReference.current.book &&
+      currentReference.current.chapter
+    ) {
+
+      const ref =
+        `${currentReference.current.book} ${currentReference.current.chapter}:${parsed.verse}`;
+
+      currentReference.current = {
+        ...currentReference.current,
+        verse: parsed.verse
+      };
+
+      setQuery(ref);
+
+      fetchVerse(ref);
+
       return;
     }
   };
@@ -150,9 +255,13 @@ const Dashboard = () => {
   };
 
   return (
-    <div className={
-      isProjecting ? styles.projector : styles.container
-    }>
+    <div
+      className={
+        isProjecting
+          ? styles.projector
+          : styles.container
+      }
+    >
 
       {!isProjecting && (
         <>
@@ -164,13 +273,21 @@ const Dashboard = () => {
               type="text"
               placeholder="Enter verse e.g. John 3:16"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) =>
+                setQuery(e.target.value)
+              }
               onKeyDown={(e) => {
-                if (e.key === "Enter") fetchVerse();
+                if (e.key === "Enter") {
+                  fetchVerse();
+                }
               }}
             />
 
-            <button onClick={() => fetchVerse()}>
+            <button
+              onClick={() =>
+                fetchVerse()
+              }
+            >
               Show
             </button>
 
@@ -178,10 +295,16 @@ const Dashboard = () => {
               onClick={startListening}
               disabled={isListening}
             >
-              {isListening ? "Voice Active" : "Start Voice Control"}
+              {isListening
+                ? "Voice Active"
+                : "Start Voice Control"}
             </button>
 
-            <button onClick={() => setIsProjecting(true)}>
+            <button
+              onClick={() =>
+                setIsProjecting(true)
+              }
+            >
               Start Projection
             </button>
 
@@ -196,11 +319,14 @@ const Dashboard = () => {
       {isProjecting && (
         <button
           className={styles.exitBtn}
-          onClick={() => setIsProjecting(false)}
+          onClick={() =>
+            setIsProjecting(false)
+          }
         >
           Exit
         </button>
       )}
+
     </div>
   );
 };
