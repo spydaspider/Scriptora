@@ -3,21 +3,25 @@ import bookAliases from "../helpers/bookaliases";
 import { convertWordsToNumbers } from "./numberConverter";
 
 export const parseBibleReferenceSmart = (input) => {
+
   if (!input) return null;
 
-  let text = input.toLowerCase().trim();
-
-  // --------------------------
-  // CLEANING
-  // --------------------------
-  text = text
+  // -----------------------------
+  // CLEAN INPUT
+  // -----------------------------
+  let text = input
+    .toLowerCase()
+    .trim()
     .replace(/vs\.?/g, "verse")
     .replace(/\s*:\s*/g, ":")
     .replace(/[.,!?]/g, " ")
     .replace(/\s+/g, " ");
 
-  text = convertWordsToNumbers(text).replace(/\s+/g, " ").trim();
+  text = convertWordsToNumbers(text);
 
+  // -----------------------------
+  // COMMON SPEECH CORRECTIONS
+  // -----------------------------
   const corrections = {
     "some more": "samuel",
     "first some more": "1 samuel",
@@ -43,19 +47,17 @@ export const parseBibleReferenceSmart = (input) => {
     .replace(/\s+/g, " ")
     .trim();
 
-  const tokens = text.split(" ");
+  // -----------------------------
+  // COMMANDS
+  // -----------------------------
   const cmd = text;
-
-  // --------------------------
-  // COMMANDS (FIXED PROPERLY)
-  // --------------------------
 
   if (
     cmd === "next" ||
-    tokens[0] === "next" ||
-    cmd.includes("go forward") ||
-    cmd.includes("move forward") ||
-    cmd.includes("forward")
+    cmd === "forward" ||
+    cmd === "go forward" ||
+    cmd === "move forward" ||
+    cmd === "next verse"
   ) {
     return {
       book: null,
@@ -69,10 +71,9 @@ export const parseBibleReferenceSmart = (input) => {
   if (
     cmd === "back" ||
     cmd === "previous" ||
-    tokens[0] === "back" ||
-    cmd.includes("go back") ||
-    cmd.includes("move back") ||
-    cmd.includes("previous")
+    cmd === "go back" ||
+    cmd === "move back" ||
+    cmd === "previous verse"
   ) {
     return {
       book: null,
@@ -83,7 +84,7 @@ export const parseBibleReferenceSmart = (input) => {
     };
   }
 
-  if (cmd.includes("next chapter")) {
+  if (cmd === "next chapter") {
     return {
       book: null,
       chapter: null,
@@ -93,7 +94,7 @@ export const parseBibleReferenceSmart = (input) => {
     };
   }
 
-  if (cmd.includes("previous chapter")) {
+  if (cmd === "previous chapter") {
     return {
       book: null,
       chapter: null,
@@ -103,78 +104,161 @@ export const parseBibleReferenceSmart = (input) => {
     };
   }
 
-  // --------------------------
+  // -----------------------------
   // BOOK DETECTION
-  // --------------------------
+  // -----------------------------
   let detectedBook = null;
 
-  const books = Object.keys(bookAliases).sort(
-    (a, b) => b.length - a.length
-  );
+  const books = Object.keys(bookAliases)
+    .sort((a, b) => b.length - a.length);
 
   for (const book of books) {
+
     if (text.includes(book)) {
       detectedBook = book;
       break;
     }
   }
 
+  // -----------------------------
+  // FUZZY MATCH
+  // -----------------------------
   if (!detectedBook) {
-    const words = tokens;
+
+    const words = text.split(" ");
+
     let bestScore = 0;
 
     for (const book of books) {
+
       for (let i = 0; i < words.length; i++) {
-        const w1 = words[i];
-        const w2 = words[i + 1] ? `${words[i]} ${words[i + 1]}` : w1;
 
-        const s1 = stringSimilarity.compareTwoStrings(w1, book);
-        const s2 = stringSimilarity.compareTwoStrings(w2, book);
+        const oneWord = words[i];
 
-        if (s1 > bestScore && s1 > 0.75) {
-          bestScore = s1;
+        const twoWords =
+          words[i + 1]
+            ? `${words[i]} ${words[i + 1]}`
+            : oneWord;
+
+        const score1 =
+          stringSimilarity.compareTwoStrings(
+            oneWord,
+            book
+          );
+
+        const score2 =
+          stringSimilarity.compareTwoStrings(
+            twoWords,
+            book
+          );
+
+        if (score1 > bestScore && score1 > 0.75) {
+          bestScore = score1;
           detectedBook = book;
         }
 
-        if (s2 > bestScore && s2 > 0.75) {
-          bestScore = s2;
+        if (score2 > bestScore && score2 > 0.75) {
+          bestScore = score2;
           detectedBook = book;
         }
       }
     }
   }
 
-  const bookName = detectedBook ? bookAliases[detectedBook] : null;
+  const bookName =
+    detectedBook
+      ? bookAliases[detectedBook]
+      : null;
 
-  // --------------------------
-  // NUMBER EXTRACTION
-  // --------------------------
+  // -----------------------------
+  // CHAPTER + VERSE EXTRACTION
+  // -----------------------------
   let chapter = null;
   let verse = null;
 
-  let match = text.match(/(\d+):(\d+)/);
+  // John 3:16
+  let match =
+    text.match(/(\d+):(\d+)/);
+
   if (match) {
+
     chapter = Number(match[1]);
     verse = Number(match[2]);
   }
 
-  match = text.match(/chapter\s*(\d+)/);
-  if (match) chapter = Number(match[1]);
+  // chapter 4 verse 5
+  match =
+    text.match(
+      /chapter\s*(\d+)\s*verse\s*(\d+)/
+    );
 
-  match = text.match(/verse\s*(\d+)/);
-  if (match) verse = Number(match[1]);
+  if (match) {
 
-  const nums = text.match(/\d+/g);
-  if (nums) {
-    if (!chapter && nums[0]) chapter = Number(nums[0]);
-    if (!verse && nums[1]) verse = Number(nums[1]);
+    chapter = Number(match[1]);
+    verse = Number(match[2]);
   }
 
+  // chapter 4
+  if (!chapter) {
+
+    match =
+      text.match(/chapter\s*(\d+)/);
+
+    if (match) {
+      chapter = Number(match[1]);
+    }
+  }
+
+  // verse 5
+  if (!verse) {
+
+    match =
+      text.match(/verse\s*(\d+)/);
+
+    if (match) {
+      verse = Number(match[1]);
+    }
+  }
+
+  // -----------------------------
+  // RAW NUMBERS
+  // -----------------------------
+  if (!chapter && !verse) {
+
+    const nums =
+      text.match(/\d+/g);
+
+    if (nums?.length === 1) {
+
+      // single number -> verse
+      if (!bookName) {
+
+        verse = Number(nums[0]);
+
+      } else {
+
+        chapter = Number(nums[0]);
+      }
+    }
+
+    if (nums?.length >= 2) {
+
+      chapter = Number(nums[0]);
+      verse = Number(nums[1]);
+    }
+  }
+
+  // -----------------------------
+  // RETURN
+  // -----------------------------
   return {
     book: bookName,
     chapter,
     verse,
     command: null,
-    confidence: detectedBook ? 0.9 : 0.3
+    confidence:
+      detectedBook
+        ? 0.9
+        : 0.3
   };
 };
