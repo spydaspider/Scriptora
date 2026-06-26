@@ -3,7 +3,7 @@ import { useState, useRef } from "react";
 
 import { startSpeechRecognition } from "../services/speechRecognition";
 import { parseBibleReferenceSmart } from "../services/bibleParser";
-import { getVerse } from "../services/bibleService";
+import { getVerse, setBibleVersion } from "../services/bibleService";
 
 const Dashboard = () => {
   const [query, setQuery] = useState("");
@@ -12,7 +12,12 @@ const Dashboard = () => {
   const [isListening, setIsListening] = useState(false);
 
   // -----------------------------------
-  // CONTEXT MEMORY (SOURCE OF TRUTH)
+  // VERSION STATE (NEW)
+  // -----------------------------------
+  const [version, setVersion] = useState("WEB");
+
+  // -----------------------------------
+  // CONTEXT MEMORY
   // -----------------------------------
   const currentReference = useRef({
     book: null,
@@ -21,15 +26,15 @@ const Dashboard = () => {
   });
 
   // -----------------------------------
-  // FETCH VERSE
+  // FETCH VERSE (UPDATED ONLY HERE)
   // -----------------------------------
   const fetchVerse = (ref) => {
-    const result = getVerse(ref || query);
+    const result = getVerse(ref || query, version);
     setVerse(result);
   };
 
   // -----------------------------------
-  // APPLY REFERENCE (CENTRAL ENGINE)
+  // APPLY REFERENCE
   // -----------------------------------
   const goToReference = (book, chapter, verse) => {
     const ref = `${book} ${chapter}:${verse}`;
@@ -45,7 +50,7 @@ const Dashboard = () => {
   };
 
   // -----------------------------------
-  // COMMAND ENGINE (SHARED LOGIC)
+  // COMMAND ENGINE (UNCHANGED)
   // -----------------------------------
   const runCommand = (type) => {
     const current = currentReference.current;
@@ -89,7 +94,7 @@ const Dashboard = () => {
   };
 
   // -----------------------------------
-  // SPEECH HANDLER
+  // SPEECH HANDLER (UNCHANGED)
   // -----------------------------------
   const handleSpeech = (text) => {
     if (!text || text.trim() === "") return;
@@ -102,17 +107,11 @@ const Dashboard = () => {
 
     if (!parsed) return;
 
-    // -------------------------
-    // HANDLE COMMANDS
-    // -------------------------
     if (parsed.command) {
       runCommand(parsed.command);
       return;
     }
 
-    // -------------------------
-    // MERGE CONTEXT
-    // -------------------------
     const book = parsed.book || currentReference.current.book;
     const chapter = parsed.chapter || currentReference.current.chapter;
     const verseNum = parsed.verse;
@@ -154,72 +153,216 @@ const Dashboard = () => {
     });
   };
 
+  // -----------------------------------
+  // VERSION CHANGE HANDLER (NEW)
+  // -----------------------------------
+  const handleVersionChange = (e) => {
+  const newVersion = e.target.value;
+
+  setVersion(newVersion);
+  setBibleVersion(newVersion);
+
+  // Reload the currently displayed verse
+  const current = currentReference.current;
+
+  if (current.book && current.chapter && current.verse) {
+    const ref = `${current.book} ${current.chapter}:${current.verse}`;
+
+    const result = getVerse(ref, newVersion);
+
+    setQuery(ref);
+    setVerse(result);
+  }
+};
   return (
-    <div className={isProjecting ? styles.projector : styles.container}>
-      {!isProjecting && (
-        <>
-          <h1>Bible Projector</h1>
+  <div
+    className={
+      isProjecting
+        ? styles.projector
+        : styles.container
+    }
+  >
+    {!isProjecting && (
+      <>
+        {/* HEADER */}
+        <header className={styles.header}>
+          <div>
+            <h1 className={styles.title}>
+              📖 Bible Projector
+            </h1>
+            <p className={styles.subtitle}>
+              Voice Controlled Scripture Projection
+            </p>
+          </div>
 
-          <div className={styles.controls}>
-            {/* MANUAL INPUT */}
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Enter verse e.g. John 3:16"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") fetchVerse();
-              }}
-            />
+          <div className={styles.versionBox}>
+            <label>Bible Version</label>
 
-            <button onClick={() => fetchVerse()}>
-              Show
+            <select
+              value={version}
+              onChange={handleVersionChange}
+            >
+              <option value="WEB">
+                World English Bible
+              </option>
+
+              <option value="KJV">
+                King James Version
+              </option>
+
+              <option value="ASV">
+                American Standard Version
+              </option>
+            </select>
+          </div>
+        </header>
+
+        {/* SEARCH */}
+        <section className={styles.searchCard}>
+          <input
+            value={query}
+            onChange={(e) =>
+              setQuery(e.target.value)
+            }
+            placeholder="Search... Example: John 3:16 or Genesis chapter 5 verse 2"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                fetchVerse();
+              }
+            }}
+          />
+
+          <button
+            className={styles.primaryBtn}
+            onClick={() => fetchVerse()}
+          >
+            🔍 Show Verse
+          </button>
+        </section>
+
+        {/* DASHBOARD */}
+        <section className={styles.dashboardGrid}>
+          {/* Voice */}
+          <div className={styles.card}>
+            <h2>🎤 Voice Control</h2>
+
+            <p>
+              Status:
+              <span
+                className={
+                  isListening
+                    ? styles.active
+                    : styles.inactive
+                }
+              >
+                {isListening
+                  ? " Listening"
+                  : " Idle"}
+              </span>
+            </p>
+
+            <button
+              onClick={startListening}
+              disabled={isListening}
+              className={styles.voiceBtn}
+            >
+              {isListening
+                ? "Voice Active"
+                : "Start Voice Control"}
             </button>
 
-            {/* SPEECH */}
-            <button onClick={startListening} disabled={isListening}>
-              {isListening ? "Voice Active" : "Start Voice Control"}
-            </button>
+            <small>
+              Try saying:
+              <br />
+              John 3:16
+              <br />
+              Next verse
+              <br />
+              Previous chapter
+            </small>
+          </div>
 
-            {/* MANUAL CONTROLS (NEW FIX) */}
-            <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-              <button onClick={() => runCommand("PREVIOUS_VERSE")}>
+          {/* Navigation */}
+          <div className={styles.card}>
+            <h2>📖 Navigation</h2>
+
+            <div className={styles.navGrid}>
+              <button
+                onClick={() =>
+                  runCommand("PREVIOUS_VERSE")
+                }
+              >
                 ⬅ Prev Verse
               </button>
 
-              <button onClick={() => runCommand("NEXT_VERSE")}>
+              <button
+                onClick={() =>
+                  runCommand("NEXT_VERSE")
+                }
+              >
                 Next Verse ➡
               </button>
 
-              <button onClick={() => runCommand("PREVIOUS_CHAPTER")}>
-                Prev Chapter
+              <button
+                onClick={() =>
+                  runCommand("PREVIOUS_CHAPTER")
+                }
+              >
+                ⬆ Prev Chapter
               </button>
 
-              <button onClick={() => runCommand("NEXT_CHAPTER")}>
-                Next Chapter
+              <button
+                onClick={() =>
+                  runCommand("NEXT_CHAPTER")
+                }
+              >
+                Next Chapter ⬇
               </button>
             </div>
+          </div>
 
-            <button onClick={() => setIsProjecting(true)}>
+          {/* Projection */}
+          <div className={styles.card}>
+            <h2>🎥 Projection</h2>
+
+            <button
+              className={styles.projectBtn}
+              onClick={() =>
+                setIsProjecting(true)
+              }
+            >
               Start Projection
             </button>
-          </div>
-        </>
-      )}
 
+            <small>
+              Displays verses in fullscreen
+              mode.
+            </small>
+          </div>
+        </section>
+      </>
+    )}
+
+    {/* VERSE DISPLAY */}
+    <main className={styles.displayCard}>
       <div className={styles.display}>
         {verse || "Verse will appear here"}
       </div>
+    </main>
 
-      {isProjecting && (
-        <button
-          className={styles.exitBtn}
-          onClick={() => setIsProjecting(false)}
-        >
-          Exit
-        </button>
-      )}
-    </div>
-  );
+    {isProjecting && (
+      <button
+        className={styles.exitBtn}
+        onClick={() =>
+          setIsProjecting(false)
+        }
+      >
+        Exit Projection
+      </button>
+    )}
+  </div>
+);
+  
 };
 
 export default Dashboard;
