@@ -131,6 +131,7 @@ const bookAliases = {
 
   luke: "Luke",
   lk: "Luke",
+  look: "Luke",
 
   john: "John",
   jn: "John",
