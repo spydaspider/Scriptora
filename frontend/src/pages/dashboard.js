@@ -4,12 +4,15 @@ import { useState, useRef } from "react";
 import { startSpeechRecognition } from "../services/speechRecognition";
 import { parseBibleReferenceSmart } from "../services/bibleParser";
 import { getVerse, setBibleVersion } from "../services/bibleService";
+import { speechEngine } from "../services/speechEngine";
+
 
 const Dashboard = () => {
   const [query, setQuery] = useState("");
   const [verse, setVerse] = useState("");
   const [isProjecting, setIsProjecting] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const lastAction = useRef(0);
 
   // -----------------------------------
   // VERSION STATE (NEW)
@@ -96,7 +99,7 @@ const Dashboard = () => {
   // -----------------------------------
   // SPEECH HANDLER (UNCHANGED)
   // -----------------------------------
-  const handleSpeech = (text) => {
+ /*  const handleSpeech = (text) => {
     if (!text || text.trim() === "") return;
 
     console.log("RAW SPEECH:", text);
@@ -140,6 +143,7 @@ const Dashboard = () => {
       return;
     }
   };
+ */
 
   // -----------------------------------
   // SPEECH START
@@ -148,9 +152,23 @@ const Dashboard = () => {
     if (isListening) return;
     setIsListening(true);
 
-    startSpeechRecognition((text) => {
-      handleSpeech(text);
-    });
+    startSpeechRecognition((text)=>{
+
+
+speechEngine(
+text,
+{
+goToReference,
+
+runCommand,
+
+lastAction
+
+}
+);
+
+
+});
   };
 
   // -----------------------------------
